@@ -43,7 +43,11 @@ enum NotchScreenEdgeClickTests {
         var geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1470, height: 956),
                                      safeAreaTop: 32, cameraWidth: 180)
         var compactActivityGeometry: NotchGeometry { geometry }
-        var surfaceSize: CGSize { peeking ? geometry.expanded : compactActivityIsVisible ? geometry.compactActivitySize : geometry.collapsed }
+        var hoverEmphasized = false
+        var surfaceSize: CGSize {
+            let size = peeking ? geometry.expanded : compactActivityIsVisible ? geometry.compactActivitySize : geometry.collapsed
+            return hoverEmphasized ? NotchHoverEmphasis.size(from: size, geometry: geometry) : size
+        }
         var screenEdgeClickMonitors: [Any] = []
         var screenEdgePressArea: CGRect?
         var hoverWork: DispatchWorkItem?
@@ -122,17 +126,20 @@ enum NotchScreenEdgeClickTests {
         suite.expect(steady.openings == 1,
                "the drag a press at the screen's edge reports, within the island, keeps the click")
         steady.removeScreenEdgeClickMonitors()
-        let settled = Service()
-        settled.syncScreenEdgeClicks()
-        guard let resting = settled.screenEdgeClickArea else { suite.expect(false, "a resting island takes edge clicks"); return }
-        // Pressed while the hover pulse had widened the island, released after it settled.
-        let pulsed = resting.insetBy(dx: -10, dy: 0)
-        let wing = CGPoint(x: pulsed.minX + 4, y: pulsed.maxY)
-        settled.handleScreenEdgeClick(.leftMouseDown, at: CGPoint(x: resting.midX, y: resting.maxY), isNotchWindow: false)
-        settled.screenEdgePressArea = pulsed
-        settled.handleScreenEdgeClick(.leftMouseUp, at: wing, isNotchWindow: false)
-        suite.expect(settled.openings == 1, "a release within the island as pressed still opens it after the pulse settles")
-        settled.removeScreenEdgeClickMonitors()
+        let late = Service()
+        late.geometry = NotchGeometry(screen: late.geometry.screen, safeAreaTop: 32, cameraWidth: 180, compactSideRoom: 64)
+        late.syncScreenEdgeClicks()
+        guard let resting = late.screenEdgeClickArea else { suite.expect(false, "a resting island takes edge clicks"); return }
+        let centre = CGPoint(x: resting.midX, y: resting.maxY)
+        late.handleScreenEdgeClick(.leftMouseDown, at: centre, isNotchWindow: false)
+        // The entry is reported after the press, so the pulse lands before the release.
+        late.hoverEmphasized = true
+        guard let pulsed = late.screenEdgeClickArea else { suite.expect(false, "a pulsing island takes edge clicks"); return }
+        // Released where only the grown island reaches.
+        late.handleScreenEdgeClick(.leftMouseUp, at: CGPoint(x: pulsed.maxX - 4, y: pulsed.maxY), isNotchWindow: false)
+        suite.expect(pulsed.maxX - 4 > resting.maxX && late.openings == 1,
+                     "a click the hover pulse grows under still opens the island")
+        late.removeScreenEdgeClickMonitors()
         let service = Service()
         service.geometry = NotchGeometry(screen: service.geometry.screen, safeAreaTop: 0, cameraWidth: 0)
         service.compactActivityIsVisible = true
