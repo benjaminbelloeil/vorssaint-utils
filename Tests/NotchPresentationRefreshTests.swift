@@ -20,9 +20,12 @@ enum NotchPresentationRefreshContract {
         struct Accessibility { var accessibilityDisplayShouldReduceMotion = false }
     }
     enum NotchPanel { static let normalLevel = 1, fullscreenLevel = 0 }
-    final class CaptureOptions {
+    final class CaptureOptions: ObservableObject {
+        enum Tool { case screenshot, text }
+        @Published var selectedTool: Tool = .screenshot
         var hasFocusedControl = false
         var onSelectionProgressChange: ((Bool) -> Void)?
+        var onCaptureControlsSurfaceChange: ((CGRect, CGFloat) -> Void)?
     }
     enum UserDefaults {
         static var standard = Preferences()
@@ -116,6 +119,7 @@ enum NotchPresentationRefreshContract {
         var revealFromHidden = false
         var outlineEnabled = false
         var outlineColor = NSColor.white
+        var transitions: [NotchContentTransition] = []
         func setOutline(enabled: Bool, color: NSColor) {
             outlineEnabled = enabled
             outlineColor = color
@@ -123,6 +127,7 @@ enum NotchPresentationRefreshContract {
         func present(size: CGSize, geometry: NotchGeometry, animated: Bool,
                      transitionContent: NotchContentTransition, quickAccess: NotchQuickAccessConfiguration?,
                      revealFromHidden: Bool, usesGlass: Bool) {
+            transitions.append(transitionContent)
             departsContent = transitionContent == .depart
             self.usesGlass = usesGlass
             self.revealFromHidden = revealFromHidden
@@ -154,6 +159,12 @@ enum NotchPresentationRefreshContract {
         var captureFallback: (() -> Void)?
         var captureClose: (() -> Void)?
         var captureHover: ((Bool) -> Void)?
+        var captureClosesOnCollapse = false
+        var routesCaptures = true
+        var openedPages: [(module: NotchModule, takeFocus: Bool)] = []
+        func open(_ module: NotchModule, pinned: Bool, takeFocus: Bool, feedback: Bool) {
+            openedPages.append((module, takeFocus))
+        }
         var pinned = false
         var showingSections = false
         var showingAppPanel = false
@@ -179,6 +190,10 @@ enum NotchPresentationRefreshContract {
         var captureControlsSubscription: AnyCancellable?
         var captureControlsCancel: (() -> Void)?
         var captureControlsMonitors: [Any] = []
+        func installCaptureControlsClickThrough() {
+            if captureControlsMonitors.isEmpty { captureControlsMonitors = [1] }
+        }
+        func removeEventMonitors() {}
         func syncVisibleConsumers() {}
         var hoverWork: DispatchWorkItem?
         var hoverState = NotchHoverState()
@@ -619,6 +634,18 @@ enum NotchPresentationRefreshContract {
         replacement.compactActivityIsVisible = true
         suite.expect(replacement.compactMusicTransition(.none, animated: true) == .replace,
                      "a compact timer replaces the disappearing music with a fade")
+
+        // The picker changes the strip inside its surface, so the song chosen
+        // away is no departure for the host to fade through every choice.
+        let chosen = Service()
+        chosen.expanded = false
+        chosen.showsCompactActivityPicker = true
+        chosen.compactActivity = .music
+        chosen.compactActivityIsVisible = true
+        chosen.presentedMusic = NotchCompactMusicSnapshot(track: 2)
+        chosen.switchCompactSelection { chosen.compactActivity = .timer }
+        suite.expect(chosen.windowHost?.transitions == [NotchContentTransition.none],
+                     "choosing another activity over a song changes the strip in place, without the host's fade")
 
         let reduced = Service()
         reduced.expanded = false
